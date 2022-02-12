@@ -17,10 +17,8 @@ This course covers various topics in physically-based animation.
 
 ### Lab3 Bouncy House
 FEM/FVM
-#### StVK Model
-![title](https://github.com/jjiangaj/Games103/blob/main/pic/lab3-1.gif?raw=true)
 #### StVK (Hyperelastic models)
-![title](https://github.com/jjiangaj/Games103/blob/main/pic/lab3-2.gif?raw=true)
+![title](https://github.com/jjiangaj/Games103/blob/main/pic/lab3-1.gif?raw=true)
 
 
 ### Lab4 Pool Ripples
