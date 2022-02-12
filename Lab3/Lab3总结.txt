@@ -1,0 +1,6 @@
+1. 使用Laplacian smoothing可以明显提高稳定性，smoothing前模型很容易炸。
+2. Bonus Task中使用Hyperelastic model会使得模拟速度变慢（在我的电脑上帧率降到大约5，不使用的话大概是20），得出的模拟效果与不使用
+    Hyperelastic model的StVK没有显著区别。提交的程序中备注掉了未使用Hyperelastic model的部分。
+    有尝试过Neo-Hookean，不过不太成功，后续再找paper试试看。
+3. 调试参数对结果的影响比较大（炸和不炸的区别）。
+4. 同学的建议下使用了Parallel.For，提高速度的效果比较显著。
