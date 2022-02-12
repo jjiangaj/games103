@@ -1,14 +1,24 @@
+////////////////////////////////////////////////
+/// 1. 使用Laplacian smoothing可以明显提高稳定性，smoothing前模型很容易炸。
+/// 2. Bonus Task中使用Hyperelastic model会使得模拟速度变慢（在我的电脑上帧率降到大约5，不使用的话大概是20），
+/// 得出的模拟效果与不使用Hyperelastic model的StVK没有显著区别。
+/// 提交的程序中备注掉了未使用Hyperelastic model的部分。有尝试过Neo-Hookean，不过不太成功，后续再找paper试试看。
+/// 3. 调试参数对结果的影响比较大（炸和不炸的区别）。
+/// 4. 同学的建议下使用了Parallel.For，提高速度的效果比较显著。
+/// ////////////////////////////////////////////////
+
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
 using System.IO;
+using System.Threading.Tasks;
 
 public class FVM : MonoBehaviour
 {
-	float dt 			= 0.003f;
+	float dt 			= 0.002f;
     float mass 			= 1;
-	float stiffness_0	= 20000.0f;
+	float stiffness_0	= 7500.0f;
     float stiffness_1 	= 5000.0f;
     float damp			= 0.999f;
     float miu_t = 0.5f;
@@ -29,7 +39,6 @@ public class FVM : MonoBehaviour
 	//For Laplacian smoothing.
 	Vector3[]   V_sum;
 	int[]		V_num;
-
 	SVD svd = new SVD();
 
     // Start is called before the first frame update
@@ -138,6 +147,12 @@ public class FVM : MonoBehaviour
 		{
 			inv_Dm[t] = Build_Edge_Matrix(t).inverse;
 		}
+
+		for (int i = 0; i < number; i++)
+		{
+			V_sum[i] = new Vector3(0, 0, 0);
+			V_num[i] = 0;
+		}
     }
 
     Matrix4x4 Build_Edge_Matrix(int tet)
@@ -163,21 +178,10 @@ public class FVM : MonoBehaviour
 			    A [i, j] =  m [i,j] + n[i, j];
 		    }
 	    }
-
 	    A[3, 3] = 1;
 	    return A;
     }
-    
-    float MatTrace(Matrix4x4 m)
-    {
-	    float ans = 0.0f;
-	    for(int i = 0; i < 3; i++)
-	    {
-		    ans += m[i, i];
-	    }
-	    return ans;
-    }
-    
+
     Matrix4x4 MatSub(Matrix4x4 m, Matrix4x4 n)
     {
 	    Matrix4x4 A = Matrix4x4.zero;
@@ -209,47 +213,123 @@ public class FVM : MonoBehaviour
 		if(Input.GetKeyDown(KeyCode.Space))
     	{
     		for(int i=0; i<number; i++)
-    			V[i].y-=0.2f;
+    			V[i].y+=0.3f;
     	}
 
     	for(int i=0 ;i<number; i++)
     	{
     		//TODO: Add gravity to Force.
-	        Force[i] = new Vector3(0,0,0);
-        }
-
-    	for(int tet=0; tet<tet_number; tet++)
-    	{
-    		//TODO: Deformation Gradient
-            Matrix4x4 dm = Build_Edge_Matrix(tet);
-            Matrix4x4 F = dm * inv_Dm[tet];
-
-            //TODO: Green Strain
-            Matrix4x4 G = Times(MatSub(F.transpose * F, Matrix4x4.identity), 1/2);
-
-            //TODO: First PK Stress
-            Matrix4x4 P = F * MatAdd(Times(G, 2 * stiffness_1), Times(Matrix4x4.identity, stiffness_0 * MatTrace(G)));
-
-            //TODO: Elastic Force
-            float param = -1 / (6 * inv_Dm[tet].determinant);
-            Matrix4x4 Fi = Times(P * inv_Dm[tet].transpose, param);
-
-            Force[Tet[tet * 4 + 0]] += (Vector3) (- Fi.GetColumn(0) - Fi.GetColumn(1) - Fi.GetColumn(2));
-            Force[Tet[tet * 4 + 1]] += (Vector3) Fi.GetColumn(0);
-            Force[Tet[tet * 4 + 2]] += (Vector3) Fi.GetColumn(1);
-            Force[Tet[tet * 4 + 3]] += (Vector3) Fi.GetColumn(2);
+	        Force[i] = Fg;
         }
         
-        Vector3 P1 = new Vector3(0, -3, 0);
-        Vector3 N1 = new Vector3(0, 1, 0);
+        //Without Hyper elastic-----------------------------------------///
+     //    Parallel.For(0, tet_number, (tet) =>
+    	// // for(int tet=0; tet<tet_number; tet++)
+    	// {
+    	// 	//TODO: Deformation Gradient
+     //        Matrix4x4 dm = Build_Edge_Matrix(tet);
+     //        Matrix4x4 F = dm * inv_Dm[tet];
+     //  
+     //        //TODO: Green Strain
+     //        Matrix4x4 G = Times(MatSub(F.transpose * F, Matrix4x4.identity), 0.5f);
+     //        float trace = G[0, 0] + G[1, 1] + G[2, 2];
+     //
+     //        //TODO: First PK Stress
+     //        Matrix4x4 P = F * MatAdd(Times(G, 2 * stiffness_1), Times(Matrix4x4.identity, stiffness_0 * trace));
+     //  
+     //        //TODO: Elastic Force
+     //        float param = -1 / (6 * inv_Dm[tet].determinant);
+     //        Matrix4x4 Fi = Times(P, param) * inv_Dm[tet].transpose;
+     //  
+     //        Force[Tet[tet * 4 + 0]] -= (Vector3) (Fi.GetColumn(0) + Fi.GetColumn(1) + Fi.GetColumn(2));
+     //        Force[Tet[tet * 4 + 1]] += (Vector3) Fi.GetColumn(0);
+     //        Force[Tet[tet * 4 + 2]] += (Vector3) Fi.GetColumn(1);
+     //        Force[Tet[tet * 4 + 3]] += (Vector3) Fi.GetColumn(2);
+     //    });
+		//--------------------------------------------------------------///
+		
+		
+		//Hyperelastic--------------------------------------------------///
+        Parallel.For(0, tet_number, (tet) =>
+	        // for(int tet=0; tet<tet_number; tet++)
+        {
+	        //TODO: Deformation Gradient
+	        Matrix4x4 dm = Build_Edge_Matrix(tet);
+	        Matrix4x4 F = dm * inv_Dm[tet];
+	        Matrix4x4 C = F.transpose*F;
+
+	        //SVD
+	        float I = C[0, 0] + C[1, 1] + C[2, 2];
+	        
+	        Matrix4x4 U = Matrix4x4.zero;
+	        Matrix4x4 S = Matrix4x4.zero;
+	        Matrix4x4 V = Matrix4x4.zero;
+	        svd.svd(F, ref U, ref S, ref V);
+	        
+	        Matrix4x4 diag = Matrix4x4.zero;
+	        diag[3, 3] = 1;
+	        diag[0, 0] = stiffness_0 * (I - 3) * S[0,0]/2 + stiffness_1 * (S[0,0]*S[0,0]*S[0,0] - S[0,0]);
+	        diag[1, 1] = stiffness_0 * (I - 3) * S[1,1]/2 + stiffness_1 * (S[1,1]*S[1,1]*S[1,1] - S[1,1]);
+	        diag[2, 2] = stiffness_0 * (I - 3) * S[2,2]/2 + stiffness_1 * (S[2,2]*S[2,2]*S[2,2] - S[2,2]);
+	        Matrix4x4 P = U * diag * V.transpose;
+      
+	        //TODO: Elastic Force
+	        float param = -1 / (6 * inv_Dm[tet].determinant);
+	        Matrix4x4 Fi = Times(P, param) * inv_Dm[tet].transpose;
+      
+	        Force[Tet[tet * 4 + 0]] -= (Vector3) (Fi.GetColumn(0) + Fi.GetColumn(1) + Fi.GetColumn(2));
+	        Force[Tet[tet * 4 + 1]] += (Vector3) Fi.GetColumn(0);
+	        Force[Tet[tet * 4 + 2]] += (Vector3) Fi.GetColumn(1);
+	        Force[Tet[tet * 4 + 3]] += (Vector3) Fi.GetColumn(2);
+        });
+        //--------------------------------------------------------------///
+        
+        //Laplacian smoothing
+        Parallel.For(0, tet_number, (tet) =>
+	        // for(int tet=0; tet<tet_number; tet++)
+        {
+	        //For a tetrahedral, add the 3 velocities to the top vertex
+	        Vector3 v0 = V[Tet[tet * 4 + 0]];
+	        Vector3 v1 = V[Tet[tet * 4 + 1]];
+	        Vector3 v2 = V[Tet[tet * 4 + 2]];
+	        Vector3 v3 = V[Tet[tet * 4 + 3]];
+	        Vector3 sum = v0 + v1 + v2 + v3;
+
+	        //Account for the 3 edges linked to the top vertex
+	        V_sum[Tet[tet * 4 + 0]] = sum - v0;
+	        V_num[Tet[tet * 4 + 0]] = 3;
+
+	        //Add the top vertex's velocity to the other vertices
+	        V_sum[Tet[tet * 4 + 1]] = sum - v1;
+	        V_num[Tet[tet * 4 + 1]] = 3;
+
+	        V_sum[Tet[tet * 4 + 2]] = sum - v2;
+	        V_num[Tet[tet * 4 + 2]] = 3;
+
+	        V_sum[Tet[tet * 4 + 3]] = sum - v3;
+	        V_num[Tet[tet * 4 + 3]] = 3;
+        });
+
+        Parallel.For(0, number, (i) =>
+	        // for (int i = 0; i < number; i++)
+        {
+	        V[i] = 0.95f * V[i] + 0.05f * (V_sum[i] / V_num[i]);
+        });
+
         for (int i = 0; i < number; i++)
         {
-	        //TODO: Update X and V here。
+	        //TODO: Update V and X here。
+	        V[i] += dt * Force[i];
 	        V[i] *= damp;
-	        V[i] += Force[i];
 	        X[i] += dt * V[i];
+        }
 
-	        //TODO: (Particle) collision with floor.
+        //TODO: (Particle) collision with floor.
+        Vector3 P1 = new Vector3(0, -3, 0);
+        Vector3 N1 = new Vector3(0, 1, 0);
+        Parallel.For(0, number, (i) =>
+	        // for (int i = 0; i < number; i++)
+        {
 	        float phi = Vector3.Dot((X[i] - P1), N1);
 
 	        if (phi < 0)
@@ -268,8 +348,11 @@ public class FVM : MonoBehaviour
 			        V[i] = vn + vt;
 		        }
 	        }
-	    }
-	}
+        });
+        
+        
+    }
+	
     
 
     // Update is called once per frame
